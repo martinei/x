@@ -4,10 +4,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewAuthCmd(self string) *cobra.Command {
+func NewAuthCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Create or sign into your Ory Cloud account",
+		Short: "Create an or sign into your Ory Cloud account",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			h, err := NewSnakeCharmer(cmd)
 			if err != nil {
