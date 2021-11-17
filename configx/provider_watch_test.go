@@ -57,7 +57,7 @@ bar: %s`, dsn, foo, bar)
 }
 
 func lsof(t *testing.T, file string) string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		return ""
 	}
 	var b bytes.Buffer
@@ -68,7 +68,7 @@ func lsof(t *testing.T, file string) string {
 }
 
 func checkLsof(t *testing.T, file string) string {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS != "linux" {
 		return ""
 	}
 
