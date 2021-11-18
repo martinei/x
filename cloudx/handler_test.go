@@ -59,7 +59,7 @@ func assertConfig(t *testing.T, configDir string, email string, name string, new
 	assert.Equal(t, version, ac.Version)
 	assert.NotEmpty(t, ac.SessionToken)
 
-	c, err := newConsoleClient("public")
+	c, err := newKratosClient("public")
 	require.NoError(t, err)
 
 	res, _, err := c.V0alpha2Api.ToSession(context.Background()).XSessionToken(ac.SessionToken).Execute()
@@ -85,9 +85,9 @@ func TestAuthenticator(t *testing.T) {
 	// Use staging
 	require.NoError(t, os.Setenv("ORY_CLOUD_CONSOLE_URL", "https://project.console.staging.ory.dev"))
 
-	t.Run("errors without config and --yes flag", func(t *testing.T) {
+	t.Run("errors without config and --quiet flag", func(t *testing.T) {
 		cmd := NewRootCommand("", "")
-		cmd.SetArgs([]string{"auth", "--cloud-config", configDir, "--yes"})
+		cmd.SetArgs([]string{"auth", "--cloud-config", configDir, "--quiet"})
 		require.Error(t, cmd.Execute())
 	})
 
@@ -154,7 +154,7 @@ func TestAuthenticator(t *testing.T) {
 			var ac AuthContext
 			require.NoError(t, json.NewDecoder(f).Decode(&ac))
 
-			c, err := newConsoleClient("public")
+			c, err := newKratosClient("public")
 			require.NoError(t, err)
 
 			flow, _, err := c.V0alpha2Api.InitializeSelfServiceSettingsFlowWithoutBrowser(context.Background()).XSessionToken(ac.SessionToken).Execute()

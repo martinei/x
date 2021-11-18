@@ -80,6 +80,7 @@ require (
 	github.com/openzipkin-contrib/zipkin-go-opentracing v0.4.5
 	github.com/openzipkin/zipkin-go v0.2.5
 	github.com/ory/analytics-go/v4 v4.0.2
+	github.com/ory/client-go v0.0.1-alpha.23
 	github.com/ory/dockertest/v3 v3.8.0
 	github.com/ory/go-acc v0.2.6
 	github.com/ory/graceful v0.1.1

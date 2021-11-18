@@ -1241,6 +1241,8 @@ github.com/openzipkin/zipkin-go v0.2.5/go.mod h1:KpXfKdgRDnnhsxw4pNIH9Md5lyFqKUa
 github.com/ory/analytics-go/v4 v4.0.0/go.mod h1:FMx9cLRD9xN+XevPvZ5FDMfignpmcqPP6FUKnJ9/MmE=
 github.com/ory/analytics-go/v4 v4.0.2 h1:Da2cASrS4aA7QUzcDJxpyVVDhVdxXacX57ChcpXZ0rg=
 github.com/ory/analytics-go/v4 v4.0.2/go.mod h1:JyjcjhLkI6bK9WUIxlZ2cpN6rfShKE9nKW9vnBPWotE=
+github.com/ory/client-go v0.0.1-alpha.23 h1:IhjuuzrPZWkWJkLE6TMzHHeQKmAaSLC/JK7Q6mh4JMk=
+github.com/ory/client-go v0.0.1-alpha.23/go.mod h1:dWbi9DBEjiDXwyuJ1+A2WT1/bIp9HwvVxZxzHzp4YHU=
 github.com/ory/dockertest v3.3.5+incompatible h1:iLLK6SQwIhcbrG783Dghaaa3WPzGc+4Emza6EbVUUGA=
 github.com/ory/dockertest v3.3.5+incompatible/go.mod h1:1vX4m9wsvi00u5bseYwXaSnhNrne+V0E6LAcBILJdPs=
 github.com/ory/dockertest/v3 v3.5.4/go.mod h1:J8ZUbNB2FOhm1cFZW9xBpDsODqsSWcyYgtJYVPcnF70=

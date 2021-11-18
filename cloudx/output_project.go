@@ -1,0 +1,54 @@
+package cloudx
+
+import (
+	cloud "github.com/ory/client-go"
+)
+
+type (
+	outputProject           cloud.Project
+	outputProjectCollection struct {
+		projects []cloud.Project
+	}
+)
+
+func (_ *outputProject) Header() []string {
+	return []string{"ID", "SLUG", "STATE", "NAME"}
+}
+
+func (i *outputProject) Columns() []string {
+	return []string{
+		i.Id,
+		i.Slug,
+		i.State,
+		i.CurrentRevision.Name,
+	}
+}
+
+func (i *outputProject) Interface() interface{} {
+	return i
+}
+
+func (_ *outputProjectCollection) Header() []string {
+	return []string{"ID", "SLUG", "STATE", "NAME"}
+}
+
+func (c *outputProjectCollection) Table() [][]string {
+	rows := make([][]string, len(c.projects))
+	for i, ident := range c.projects {
+		rows[i] = []string{
+			ident.Id,
+			ident.Slug,
+			ident.State,
+			ident.CurrentRevision.Name,
+		}
+	}
+	return rows
+}
+
+func (c *outputProjectCollection) Interface() interface{} {
+	return c.projects
+}
+
+func (c *outputProjectCollection) Len() int {
+	return len(c.projects)
+}

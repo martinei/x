@@ -8,10 +8,15 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"io/ioutil"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"syscall"
+
+	cloud "github.com/ory/client-go"
+	"github.com/ory/x/pointerx"
 
 	"github.com/gofrs/uuid/v3"
 	"github.com/pkg/errors"
@@ -30,7 +35,6 @@ const (
 	fileName   = ".ory-cloud.json"
 	configFlag = "cloud-config"
 	quietFlag  = "quiet"
-	yesFlag    = "yes"
 	osEnvVar   = "ORY_CLOUD_CONFIG_PATH"
 	cloudUrl   = "ORY_CLOUD_URL"
 	version    = "v0alpha0"
@@ -39,7 +43,6 @@ const (
 func RegisterFlags(f *pflag.FlagSet) {
 	f.String(configFlag, "", "Path to the Ory Cloud configuration file.")
 	f.Bool(quietFlag, false, "Do not print any output.")
-	f.Bool(yesFlag, false, "Do not ask for confirmation.")
 }
 
 type AuthContext struct {
@@ -75,13 +78,14 @@ func getConfigPath(cmd *cobra.Command) (string, error) {
 }
 
 type SnakeCharmer struct {
-	ctx            context.Context
-	verboseWriter  io.Writer
-	configLocation string
-	noConfirm      bool
-	apiDomain      *url.URL
-	stdin          *bufio.Reader
-	pwReader       passwordReader
+	ctx              context.Context
+	verboseWriter    io.Writer
+	verboseErrWriter io.Writer
+	configLocation   string
+	noConfirm        bool
+	apiDomain        *url.URL
+	stdin            *bufio.Reader
+	pwReader         passwordReader
 }
 
 const PasswordReader = "password_reader"
@@ -96,6 +100,11 @@ func NewSnakeCharmer(cmd *cobra.Command) (*SnakeCharmer, error) {
 	var out = cmd.OutOrStdout()
 	if flagx.MustGetBool(cmd, quietFlag) {
 		out = io.Discard
+	}
+
+	var outErr = cmd.OutOrStderr()
+	if flagx.MustGetBool(cmd, quietFlag) {
+		outErr = io.Discard
 	}
 
 	toParse := stringsx.Coalesce(
@@ -116,14 +125,19 @@ func NewSnakeCharmer(cmd *cobra.Command) (*SnakeCharmer, error) {
 	}
 
 	return &SnakeCharmer{
-		configLocation: location,
-		noConfirm:      flagx.MustGetBool(cmd, yesFlag),
-		verboseWriter:  out,
-		stdin:          bufio.NewReader(cmd.InOrStdin()),
-		apiDomain:      apiDomain,
-		ctx:            cmd.Context(),
-		pwReader:       pwReader,
+		configLocation:   location,
+		noConfirm:        flagx.MustGetBool(cmd, quietFlag),
+		verboseWriter:    out,
+		verboseErrWriter: outErr,
+		stdin:            bufio.NewReader(cmd.InOrStdin()),
+		apiDomain:        apiDomain,
+		ctx:              cmd.Context(),
+		pwReader:         pwReader,
 	}, nil
+}
+
+func (h *SnakeCharmer) Stdin() *bufio.Reader {
+	return h.stdin
 }
 
 func (h *SnakeCharmer) WriteConfig(c *AuthContext) error {
@@ -162,14 +176,14 @@ func (h *SnakeCharmer) readConfig() (*AuthContext, error) {
 func (h *SnakeCharmer) EnsureContext() (*AuthContext, error) {
 	c, err := h.readConfig()
 	if err != nil {
-		if errors.Is(err, ErrNoConfig) {
-			return nil, nil
+		if errors.Is(err, ErrNoConfig) && !h.noConfirm {
+			// Continue to sign in
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 
 	if len(c.SessionToken) > 0 {
-		_, _ = fmt.Fprintf(h.verboseWriter, "You are signed in as <%s>.", c.IdentityTraits)
 		if h.noConfirm {
 			ok, err := cmdx.AskScannerForConfirmation("Press [y] to continue as that user or [n] to sign into another account.", h.stdin, h.verboseWriter)
 			if err != nil {
@@ -195,8 +209,8 @@ func (h *SnakeCharmer) EnsureContext() (*AuthContext, error) {
 		}
 	}
 
-	if len(c.SessionToken) > 0 && len(c.SelectedProject.String()) > 0 {
-		return c, nil
+	if len(c.SessionToken) == 0 {
+		return nil, errors.Errorf("unable to authenticate")
 	}
 
 	return c, nil
@@ -220,7 +234,7 @@ func (h *SnakeCharmer) signup(c *kratos.APIClient) (*AuthContext, error) {
 	var isRetry bool
 retryRegistration:
 	if isRetry {
-		_, _ = fmt.Fprintf(h.verboseWriter, "\nYour account creation attempt failed. Please try again!\n\n")
+		_, _ = fmt.Fprintf(h.verboseErrWriter, "\nYour account creation attempt failed. Please try again!\n\n")
 	}
 	isRetry = true
 
@@ -271,7 +285,7 @@ func (h *SnakeCharmer) signin(c *kratos.APIClient, sessionToken string) (*AuthCo
 	var isRetry bool
 retryLogin:
 	if isRetry {
-		_, _ = fmt.Fprintf(h.verboseWriter, "\nYour sign in attempt failed. Please try again!\n\n")
+		_, _ = fmt.Fprintf(h.verboseErrWriter, "\nYour sign in attempt failed. Please try again!\n\n")
 	}
 	isRetry = true
 
@@ -362,7 +376,7 @@ func (h *SnakeCharmer) sessionToContext(session *kratos.Session, token string) (
 
 func (h *SnakeCharmer) Authenticate() (*AuthContext, error) {
 	if h.noConfirm {
-		return nil, errors.New("can not sign in or sign up when flag --yes is set.")
+		return nil, errors.New("can not sign in or sign up when flag --quiet is set.")
 	}
 
 	ac, err := h.readConfig()
@@ -381,13 +395,13 @@ func (h *SnakeCharmer) Authenticate() (*AuthContext, error) {
 			return ac, nil
 		}
 
-		_, _ = fmt.Fprintf(h.verboseWriter, "Ok, signing you out!\n")
+		_, _ = fmt.Fprintf(h.verboseErrWriter, "Ok, signing you out!\n")
 		if err := h.SignOut(); err != nil {
 			return nil, err
 		}
 	}
 
-	c, err := newConsoleClient("public")
+	c, err := newKratosClient("public")
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +413,7 @@ func (h *SnakeCharmer) Authenticate() (*AuthContext, error) {
 
 	var retry bool
 	if retry {
-		_, _ = fmt.Fprintln(h.verboseWriter, "Unable to Authenticate you, please try again.")
+		_, _ = fmt.Fprintln(h.verboseErrWriter, "Unable to Authenticate you, please try again.")
 	}
 
 	if signIn {
@@ -408,7 +422,7 @@ func (h *SnakeCharmer) Authenticate() (*AuthContext, error) {
 			return nil, err
 		}
 	} else {
-		_, _ = fmt.Fprintln(h.verboseWriter, "Great to have you here, creating an Ory Cloud account is absolutely free and only requires to answer four easy questions.")
+		_, _ = fmt.Fprintln(h.verboseErrWriter, "Great to have you here, creating an Ory Cloud account is absolutely free and only requires to answer four easy questions.")
 
 		ac, err = h.signup(c)
 		if err != nil {
@@ -420,7 +434,7 @@ func (h *SnakeCharmer) Authenticate() (*AuthContext, error) {
 		return nil, err
 	}
 
-	_, _ = fmt.Fprintf(h.verboseWriter, "You are now signed in as: %s\n", ac.IdentityTraits.Email)
+	_, _ = fmt.Fprintf(h.verboseErrWriter, "You are now signed in as: %s\n", ac.IdentityTraits.Email)
 
 	return ac, nil
 }
@@ -428,3 +442,64 @@ func (h *SnakeCharmer) Authenticate() (*AuthContext, error) {
 func (h *SnakeCharmer) SignOut() error {
 	return h.WriteConfig(new(AuthContext))
 }
+
+func (h *SnakeCharmer) ListProjects() ([]cloud.Project, error) {
+	ac, err := h.EnsureContext()
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := newCloudClient(ac.SessionToken)
+	if err != nil {
+		return nil, err
+	}
+
+	projects, res, err := c.V0alpha0Api.ListProjects(h.ctx).Execute()
+	if err != nil {
+		return nil, handleError("unable to list projects", res, err)
+	}
+
+	return projects, nil
+}
+
+func (h *SnakeCharmer) CreateProject(name, preset string) (*cloud.Project, error) {
+	ac, err := h.EnsureContext()
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := newCloudClient(ac.SessionToken)
+	if err != nil {
+		return nil, err
+	}
+
+	project, res, err := c.V0alpha0Api.CreateProject(h.ctx).ProjectPatch(cloud.ProjectPatch{
+		DefaultIdentitySchemaUrl: pointerx.String(preset),
+		Name:                     pointerx.String(name),
+	}).Execute()
+	if err != nil {
+		return nil, handleError("unable to list projects", res, err)
+	}
+
+	return project, nil
+}
+
+func handleError(message string, res *http.Response, err error) error {
+	if e, ok := err.(*kratos.GenericOpenAPIError); ok {
+		return errors.Wrapf(err, "%s: %s", message, e.Body())
+	}
+	body, _ := ioutil.ReadAll(res.Body)
+	return errors.Wrapf(err, "%s: %s", message, body)
+}
+
+//func (h *SnakeCharmer) UpdateProject() (interface{}, error) {
+//	ac, err := h.EnsureContext()
+//	if err != nil {
+//		return nil, err
+//	}
+//
+//	hc := NewConsoleHTTPClient(ac.SessionToken)
+//	hc.Get()
+//
+//	return nil, nil
+//}
