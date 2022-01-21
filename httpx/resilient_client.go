@@ -2,6 +2,8 @@ package httpx
 
 import (
 	"context"
+	"github.com/opentracing/opentracing-go"
+	"github.com/ory/x/tracing"
 	"io"
 	"log"
 	"net/http"
@@ -19,6 +21,7 @@ type resilientOptions struct {
 	retryWaitMin time.Duration
 	retryWaitMax time.Duration
 	retryMax     int
+	tracer       opentracing.Tracer
 }
 
 func newResilientOptions() *resilientOptions {
@@ -37,6 +40,13 @@ type ResilientOptions func(o *resilientOptions)
 func ResilientClientWithClient(c *http.Client) ResilientOptions {
 	return func(o *resilientOptions) {
 		o.c = c
+	}
+}
+
+// ResilientClientWithTracer wraps the http clients transport with a tracing instrumentation
+func ResilientClientWithTracer(tracer opentracing.Tracer) ResilientOptions {
+	return func(o *resilientOptions) {
+		o.tracer = tracer
 	}
 }
 
@@ -74,6 +84,10 @@ func NewResilientClient(opts ...ResilientOptions) *retryablehttp.Client {
 	o := newResilientOptions()
 	for _, f := range opts {
 		f(o)
+	}
+
+	if o.tracer != nil {
+		o.c.Transport = tracing.RoundTripper(o.tracer, o.c.Transport)
 	}
 
 	return &retryablehttp.Client{
